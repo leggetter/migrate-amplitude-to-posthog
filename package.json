@@ -1,0 +1,17 @@
+{
+  "name": "migrate-amplitude-to-posthog",
+  "version": "0.1.0",
+  "description": "Migrate your Amplitude data to PostHog",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "posthog",
+    "amplitude",
+    "migrate",
+    "nodejs"
+  ],
+  "author": "Phil Leggetter <phil@leggetter.co.uk> (https://leggetter.co.uk)",
+  "license": "ISC"
+}
