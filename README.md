@@ -63,7 +63,20 @@ Commands:
 
 ## TODO
 
+### Planned
+
 - [x] Extract the data from Amplitude
 - [x] Unzip and convert the data into JSON files and store
 - [x] Iterate over the stored JSON files, convert the Amplitude events to PostHog events and send them to PostHog
+- [ ] Add alias tracking
+
+## Nice to have
+
 - [ ] Store PostHog event capture progress as iterating so that the process can be resumed if a request fails
+- [ ] Add some tests around key areas. Everything has been tested manually up until this point.
+- [ ] Make PostHog import batch size configurable (it is presently hard-coded as 1000) and fully adhere to the specified batch size
+
+## Acknowledgements
+
+- [Tigris Data: Developer Data Platform](https://tigrisdata.com): this utility was built whilst working for them
+- [Aplistorical](https://github.com/vicampuzano/aplistorical): a PHP-based Amplitude to PostHog migration tool the was a useful reference during development
