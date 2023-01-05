@@ -12,7 +12,12 @@ A small utility that migrates data from an [Amplitude](https://amplitude.com) pr
 
 ## Usage
 
-1. Clone the GitHub project
+1. Clone the GitHub project:
+
+   ```shell
+   git clone git@github.com:leggetter/migrate-amplitude-to-posthog.git && cd migrate-amplitude-to-posthog
+   ```
+   
 2. Install the project dependencies:
 
    ```shell
