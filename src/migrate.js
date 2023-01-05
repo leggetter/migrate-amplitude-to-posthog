@@ -6,6 +6,9 @@ import AdmZip from 'adm-zip'
 import zlib from 'node:zlib'
 
 import config from './config.js'
+import ora from 'ora'
+
+const spinner = ora()
 
 function stringToAmplitudeDateFormat(dateString, hour) {
   return new Date(dateString).toISOString().replace(/(T\d{2}).*/, `T${hour}`).replace(/-/g, '')
@@ -16,7 +19,7 @@ async function exportFromAmplitude() {
 
   const auth = Buffer.from(`${config.get('AMPLITUDE_API_KEY')}:${config.get('AMPLITUDE_API_SECRET')}`).toString('base64')
 
-  console.log('Making request to Amplitude Export API... this can take some time')
+  spinner.start('Making request to the Amplitude Export API. This can take some time.')
   
   const url = `https://amplitude.com/api/2/export?` +
               `start=${stringToAmplitudeDateFormat(config.get('AMPLITUDE_START_EXPORT_DATE'), '00')}` +
@@ -27,21 +30,27 @@ async function exportFromAmplitude() {
     },
   })
 
+  spinner.stop()
   console.log('Download complete')
-
+  
   const dirName = path.resolve('exports', new Date().toISOString())
   await fs.ensureDir(dirName)
   
   const filePath = path.resolve(dirName, 'export.zip')
+  spinner.start(`Saving the export to ${filePath}`)
+
   const arrayBuffer = await response.arrayBuffer()
   var buffer = Buffer.from( new Uint8Array(arrayBuffer) )
   await fs.promises.writeFile(filePath, buffer)
 
-  console.log('File written to', filePath)
+  spinner.stop()
+  console.log('File saved to', filePath)
   return {dirName, filePath}
 }
 
 async function unzipExport(exportZipPath) {
+  console.log('Unzipping', exportZipPath)
+
   let eventCount = 0
   let jsonFileCount = 0
 
@@ -49,8 +58,9 @@ async function unzipExport(exportZipPath) {
   var zipEntries = zip.getEntries()
 
   const jsonDirPath = path.resolve(path.dirname(exportZipPath), 'json')
-
   await fs.ensureDir(jsonDirPath)
+
+  spinner.start(`Saving JSON files to ${jsonDirPath}`)
 
   await Promise.all(zipEntries.map(async (zipEntry) => {
     if (zipEntry.entryName.endsWith('.gz')) {
@@ -67,6 +77,8 @@ async function unzipExport(exportZipPath) {
       jsonFileCount++
     }
   }))
+
+  spinner.stop()
 
   return {eventCount, jsonDirPath, jsonFileCount}
 }
@@ -112,47 +124,67 @@ async function trackAliases(amplitudeEvent) {
   }
 }
 
-async function sendToPostHog(jsonDirPath) {
+async function sendToPostHog({jsonDirPath, batchSize}) {
+  spinner.start('Importing batched events to PostHog')
+
   const files = await fs.promises.readdir(jsonDirPath)
-
   let eventCount = 0
+  let batchRequestCount = 0
+  const jsonFileCount = files.length
 
-  for (const jsonFileName of files) {
+  // Batch up requests per Amplitude file
+  // Presently batches by number of events
+  // but we could look at estimated size of the request since there is a limit to that
+  let eventsMessages = []
+
+  for (let i = 0; i < jsonFileCount; ++i) {
+    const jsonFileName = files[i]
     const nextFileName = path.resolve(jsonDirPath, jsonFileName)
     const json = await fs.readJson(nextFileName)
 
-    // Batch up requests per Amplitude file
-    const eventsMessages = []
     for (const ampEvent of json) {
       eventsMessages.push(amplitudeToPostHogEvent(ampEvent))
       await trackAliases(ampEvent)
     }
 
-    eventCount += eventsMessages.length
-
-    // Create batch per file https://posthog.com/docs/api/post-only-endpoints#batch-events
-    const requestBody = {
-      api_key: config.get('POSTHOG_PROJECT_API_KEY'),
-      batch: eventsMessages,
+    
+    // Send if batch size has been reached
+    // or the last file has just been processed
+    if(eventsMessages.length >= batchSize || i >= jsonFileCount - 1) {
+      // Create batch per file https://posthog.com/docs/api/post-only-endpoints#batch-events
+      const requestBody = {
+        api_key: config.get('POSTHOG_PROJECT_API_KEY'),
+        batch: eventsMessages,
+      }
+      
+      // Makes sequential requests (rather than parallel)
+      // but it may be worth adding a small wait inbetween requests via a config option.
+      const response = await fetch(`${config.get('POSTHOG_API_HOST')}/batch`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestBody)
+      })
+      
+      if(response.status !== 200) {
+        throw new Error(`Unexpected response code from PostHog API.\nStatus: ${response.status} \nStatus Text: ${response.statusText}\nBody: ${JSON.stringify(await response.json())}`)
+      }
+      
+      // Records which JSON file has been successfully processed in case of failure and the need to resume
+      config.set('last_json_imported', nextFileName)
+      
+      batchRequestCount++
+      eventCount += eventsMessages.length
+      
+      // reset event batch
+      eventsMessages = []
     }
-
-    const response = await fetch(`${config.get('POSTHOG_API_HOST')}/batch`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(requestBody)
-    })
-
-    if(response.status !== 200) {
-      throw new Error(`Unexpected response code from PostHog API.\nStatus: ${response.status} \nStatus Text: ${response.statusText}\nBody: ${JSON.stringify(await response.json())}`)
-    }
-
-    // Record which JSON file has been successfully processes in case of failure and the need to resume
-    config.set('last_json_imported', nextFileName)
   }
 
-  return {eventCount}
+  spinner.stop()
+
+  return {eventCount, batchRequestCount, jsonFileCount}
 }
 
 export {exportFromAmplitude, unzipExport, sendToPostHog}
