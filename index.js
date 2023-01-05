@@ -7,10 +7,10 @@ import zlib from 'node:zlib'
 
 import Conf from 'conf'
 const MIGRATION_STAGES = {
-  AMPLITUDE_EXPORT: 0,
-  AMPLITUDE_UNZIP: 1,
-  POSTHOG_IMPORT: 2,
-  COMPLETE: 100,
+  AMPLITUDE_EXPORT: 'AMPLITUDE_EXPORT',
+  AMPLITUDE_UNZIP: 'AMPLITUDE_UNZIP',
+  POSTHOG_IMPORT: 'POSTHOG_IMPORT',
+  COMPLETE: 'COMPLETE',
 }
 const config = new Conf({
   configName: 'migration',
