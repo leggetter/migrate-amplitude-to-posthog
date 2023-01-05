@@ -44,7 +44,6 @@ async function exportFromAmplitude() {
     },
   })
 
-  console.log()
   console.log('Download complete')
 
   const dirName = path.resolve('exports', new Date().toISOString())
