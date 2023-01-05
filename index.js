@@ -116,10 +116,11 @@ async function unzipExport({dirName, filePath}) {
   return {eventCount, jsonDirPath}
 }
 
-const AmplitudeToPostHogEventNameMap = {
-  'view_page': '$pageview',
-  'Viewed':  '$pageview',
-  'Viewed docs': '$pageview'
+function amplitudeToPostHogEventTypeMap(eventType) {
+  if(eventType === 'view_page' || /Viewed\s.*/.test(eventType)) {
+    return '$pageview'
+  }
+  return eventType
 }
 
 // See https://posthog.com/docs/migrate/migrate-from-amplitude
@@ -132,9 +133,9 @@ function amplitudeToPostHogEvent(amplitudeEvent) {
         $set: { ...amplitudeEvent.user_properties, ...amplitudeEvent.group_properties },
         $geoip_disable: true,
       },
-      event: AmplitudeToPostHogEventNameMap[amplitudeEvent.event_name] || amplitudeEvent.event_name,
-      distinctId: distinctId,
-      timestamp: amplitudeEvent.event_time,
+      event: amplitudeToPostHogEventTypeMap(amplitudeEvent.event_type),
+      distinct_id: distinctId,
+      timestamp: new Date(amplitudeEvent.event_time).toISOString(),
     }
 
     return eventMessage
@@ -167,26 +168,30 @@ async function sendToPostHog(jsonDirPath) {
 
     // Batch up requests per Amplitude file
     const eventsMessages = []
-    for (const ampEvent in json) {
+    for (const ampEvent of json) {
       eventsMessages.push(amplitudeToPostHogEvent(ampEvent))
       await trackAliases(ampEvent)
     }
 
     eventCount += eventsMessages.length
 
-    // TODO: create batch per file https://posthog.com/docs/api/post-only-endpoints#batch-events
+    // Create batch per file https://posthog.com/docs/api/post-only-endpoints#batch-events
     const requestBody = {
       api_key: process.env.POSTHOG_PROJECT_API_KEY,
       batch: eventsMessages,
     }
 
-    // const response = await fetch(`${process.env.POSTHOG_API_HOST}/batch`, {
-    //   method: 'POST',
-    //   headers: {
-    //     'Content-Type': 'application/json',
-    //   },
-    //   body: JSON.stringify(requestBody)
-    // })
+    const response = await fetch(`${process.env.POSTHOG_API_HOST}/batch`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(requestBody)
+    })
+
+    if(response.status !== 200) {
+      throw new Error(`Unexpected response code from PostHog API.\nStatus: ${response.status} \nStatus Text: ${response.statusText}\nBody: ${JSON.stringify(await response.json())}`)
+    }
 
     // Record which JSON file has been successfully processes in case of failure and the need to resume
     config.set('last_json_imported', nextFileName)
@@ -196,29 +201,41 @@ async function sendToPostHog(jsonDirPath) {
 }
 
 // Full process
-(async () => {
-  config.set('migration_step', MIGRATION_STAGES.AMPLITUDE_EXPORT)
-  const exportResult = await exportFromAmplitude();
-  config.set('migration_directory', exportResult.dirName)
+// (async () => {
+//   config.set('migration_step', MIGRATION_STAGES.AMPLITUDE_EXPORT)
+//   const exportResult = await exportFromAmplitude();
+//   config.set('migration_directory', exportResult.dirName)
 
-  config.set('migration_step', MIGRATION_STAGES.AMPLITUDE_UNZIP)
-  const {eventCount, jsonDirPath} = await unzipExport(exportResult)
+//   config.set('migration_step', MIGRATION_STAGES.AMPLITUDE_UNZIP)
+//   const {eventCount, jsonDirPath} = await unzipExport(exportResult)
 
-  config.set('migration_step', MIGRATION_STAGES.POSTHOG_IMPORT)
-  sendToPostHog(jsonDirPath)
+//   console.log(`Will send ${eventCount} events to PostHog`)
 
-  config.set('migration_step', MIGRATION_STAGES.COMPLETE)
-})()
+//   config.set('migration_step', MIGRATION_STAGES.POSTHOG_IMPORT)
+//   const postHogResult = await sendToPostHog(jsonDirPath)
+
+//   console.log(`Sent ${postHogResult.eventCount} events to PostHog`)
+
+//   config.set('migration_step', MIGRATION_STAGES.COMPLETE)
+// })()
 
 // Unzip only from test directory
 // (async () => {
-//   const fakeResult = {dirName: 'test-export', filePath: 'test-export/export.zip' }
+//   const fakeResult = {dirName: 'test-exports/1000-plus-events', filePath: 'test-exports/1000-plus-events/export.zip' }
+
+//   config.set('migration_step', MIGRATION_STAGES.AMPLITUDE_UNZIP)
 //   const {eventCount, jsonDirPath} = await unzipExport(fakeResult)
+
 //   console.log(`Will send ${eventCount} events to PostHog`)
 // })()
 
 // Send to PostHog only
-// (async () => {
-//   const jsonDirPath = 'test-export/json'
-//   sendToPostHog(jsonDirPath)
-// })()
+(async () => {
+
+  config.set('migration_step', MIGRATION_STAGES.POSTHOG_IMPORT)
+  const jsonDirPath  = 'test-exports/1000-plus-events/json'
+  const {eventCount} = await sendToPostHog(jsonDirPath)
+  config.set('migration_step', MIGRATION_STAGES.COMPLETE)
+
+  console.log(`Sent ${eventCount} events to PostHog`)
+})()
