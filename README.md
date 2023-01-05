@@ -35,7 +35,7 @@ A small utility that migrates data from an [Amplitude](https://amplitude.com) pr
 
    See the [Amplitude docs on getting your API credentials](https://www.docs.developers.amplitude.com/analytics/find-api-credentials/) for the `AMPLITUDE_API_KEY` and `AMPLITUDE_API_SECRET`. 
    
-   The dates should be in the format `MMDDYYYY`.
+   The dates should be in the format `MM/DD/YYYY`.
 4. Run the utility:
 
    ```shell
