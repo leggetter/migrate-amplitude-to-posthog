@@ -7,6 +7,7 @@ import zlib from 'node:zlib'
 
 import Conf from 'conf'
 const MIGRATION_STAGES = {
+  INIT: 'INIT',
   AMPLITUDE_EXPORT: 'AMPLITUDE_EXPORT',
   AMPLITUDE_UNZIP: 'AMPLITUDE_UNZIP',
   POSTHOG_IMPORT: 'POSTHOG_IMPORT',
@@ -14,6 +15,7 @@ const MIGRATION_STAGES = {
 }
 const config = new Conf({
   configName: 'migration',
+  fileExtension: 'conf',
   // docs warn against changing `cwd`, but we want to store the config in the app directory
   cwd: process.cwd(),
   migration_step: {
@@ -202,6 +204,7 @@ async function sendToPostHog(jsonDirPath) {
 
 // Full process
 // (async () => {
+//   config.set('migration_step', MIGRATION_STAGES.INIT)
 //   config.set('migration_step', MIGRATION_STAGES.AMPLITUDE_EXPORT)
 //   const exportResult = await exportFromAmplitude();
 //   config.set('migration_directory', exportResult.dirName)
@@ -220,22 +223,23 @@ async function sendToPostHog(jsonDirPath) {
 // })()
 
 // Unzip only from test directory
-// (async () => {
-//   const fakeResult = {dirName: 'test-exports/1000-plus-events', filePath: 'test-exports/1000-plus-events/export.zip' }
+(async () => {
+  config.set('migration_step', MIGRATION_STAGES.INIT)
+  const fakeResult = {dirName: 'test-exports/1000-plus-events', filePath: 'test-exports/1000-plus-events/export.zip' }
 
-//   config.set('migration_step', MIGRATION_STAGES.AMPLITUDE_UNZIP)
-//   const {eventCount, jsonDirPath} = await unzipExport(fakeResult)
+  config.set('migration_step', MIGRATION_STAGES.AMPLITUDE_UNZIP)
+  const {eventCount} = await unzipExport(fakeResult)
 
-//   console.log(`Will send ${eventCount} events to PostHog`)
-// })()
+  console.log(`Will send ${eventCount} events to PostHog`)
+})()
 
 // Send to PostHog only
-(async () => {
+// (async () => {
+//   config.set('migration_step', MIGRATION_STAGES.INIT)
+//   config.set('migration_step', MIGRATION_STAGES.POSTHOG_IMPORT)
+//   const jsonDirPath  = 'test-exports/1000-plus-events/json'
+//   const {eventCount} = await sendToPostHog(jsonDirPath)
+//   config.set('migration_step', MIGRATION_STAGES.COMPLETE)
 
-  config.set('migration_step', MIGRATION_STAGES.POSTHOG_IMPORT)
-  const jsonDirPath  = 'test-exports/1000-plus-events/json'
-  const {eventCount} = await sendToPostHog(jsonDirPath)
-  config.set('migration_step', MIGRATION_STAGES.COMPLETE)
-
-  console.log(`Sent ${eventCount} events to PostHog`)
-})()
+//   console.log(`Sent ${eventCount} events to PostHog`)
+// })()
