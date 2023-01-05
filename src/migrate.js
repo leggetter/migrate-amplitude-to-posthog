@@ -7,30 +7,6 @@ import zlib from 'node:zlib'
 
 import config from './config.js'
 
-if(!process.env.AMPLITUDE_API_KEY) {
-  throw new Error('The AMPLITUDE_API_KEY environmental variable is required')
-}
-
-if(!process.env.AMPLITUDE_API_SECRET) {
-  throw new Error('The AMPLITUDE_API_SECRET environmental variable is required')
-}
-
-if(!process.env.START_EXPORT_DATE) {
-  throw new Error('The START_EXPORT_DATE environmental variable is required and should be in the format MM/DD/YYYY')
-}
-
-if(!process.env.END_EXPORT_DATE) {
-  throw new Error('The END_EXPORT_DATE environmental variable is required and should be in the format MM/DD/YYYY')
-}
-
-if(!process.env.POSTHOG_API_HOST) {
-  throw new Error('The POSTHOG_API_HOST environmental variable is required')
-}
-
-if(!process.env.POSTHOG_PROJECT_API_KEY) {
-  throw new Error('The POSTHOG_PROJECT_API_KEY environmental variable is required')
-}
-
 function stringToAmplitudeDateFormat(dateString, hour) {
   return new Date(dateString).toISOString().replace(/(T\d{2}).*/, `T${hour}`).replace(/-/g, '')
 }
@@ -38,13 +14,13 @@ function stringToAmplitudeDateFormat(dateString, hour) {
 async function exportFromAmplitude() {
   // GET /api/2/export?start=20220101T00&end=20220127T00
 
-  const auth = Buffer.from(`${process.env.AMPLITUDE_API_KEY}:${process.env.AMPLITUDE_API_SECRET}`).toString('base64')
+  const auth = Buffer.from(`${config.get('AMPLITUDE_API_KEY')}:${config.get('AMPLITUDE_API_SECRET')}`).toString('base64')
 
   console.log('Making request to Amplitude Export API... this can take some time')
   
   const url = `https://amplitude.com/api/2/export?` +
-              `start=${stringToAmplitudeDateFormat(process.env.START_EXPORT_DATE, '00')}` +
-              `&end=${stringToAmplitudeDateFormat(process.env.END_EXPORT_DATE, '23')}`
+              `start=${stringToAmplitudeDateFormat(config.get('AMPLITUDE_START_EXPORT_DATE'), '00')}` +
+              `&end=${stringToAmplitudeDateFormat(config.get('AMPLITUDE_END_EXPORT_DATE'), '23')}`
   const response = await fetch(url, {
     headers: {
       Authorization: `Basic ${auth}`
@@ -156,11 +132,11 @@ async function sendToPostHog(jsonDirPath) {
 
     // Create batch per file https://posthog.com/docs/api/post-only-endpoints#batch-events
     const requestBody = {
-      api_key: process.env.POSTHOG_PROJECT_API_KEY,
+      api_key: config.get('POSTHOG_PROJECT_API_KEY'),
       batch: eventsMessages,
     }
 
-    const response = await fetch(`${process.env.POSTHOG_API_HOST}/batch`, {
+    const response = await fetch(`${config.get('POSTHOG_API_HOST')}/batch`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

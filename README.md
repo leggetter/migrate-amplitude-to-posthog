@@ -10,46 +10,60 @@ A small utility that migrates data from an [Amplitude](https://amplitude.com) pr
 
 **See [the TODO section](#todo) for status.**
 
-## Usage
+## Setup
 
 1. Clone the GitHub project:
 
    ```shell
    git clone git@github.com:leggetter/migrate-amplitude-to-posthog.git && cd migrate-amplitude-to-posthog
    ```
-   
+
 2. Install the project dependencies:
 
    ```shell
    npm install
    ```
-3. Create a `.env` file
-   
-   ```shell
-   cp .env.example .env
-   ```
 
-   Update the values in the new `.env` file:
+3. Configure the utility via the guided prompts by running the following command:
 
    ```shell
-   AMPLITUDE_API_KEY=
-   AMPLITUDE_API_SECRET=
-   START_EXPORT_DATE=
-   END_EXPORT_DATE=
+   npm start config
    ```
 
    See the [Amplitude docs on getting your API credentials](https://www.docs.developers.amplitude.com/analytics/find-api-credentials/) for the `AMPLITUDE_API_KEY` and `AMPLITUDE_API_SECRET`. 
    
-   The dates should be in the format `MM/DD/YYYY`.
-4. Run the utility:
+   The Amplitude export start and end dates should be in the format `MM/DD/YYYY`.
 
-   ```shell
-   npm start
-   ```
+   You can find your PostHog project API key within your **Project settings**.
+
+   Configuration is stored in `migration.conf`.
+
+## Usage
+
+Once the utility has been setup with the required configuration you can run additional commands:
+
+```shell
+Usage: index [options] [command]
+
+Options:
+  -h, --help                                 display help for command
+
+Commands:
+  config                                     Checks for any missing required configuration. Prompts when
+                                             required configuration is missing. Configuration is stored in
+                                             migration.conf in the working directory.
+  full-export                                Performs a full Amplitude export, file unzipping and JSON
+                                             file setup, and PostHog event import.
+  unzip-only <export-zip-path>               Unzipped the Amplitude export zip file and sets up the JSON
+                                             files ready for the PostHog import. Request an export zip file.
+  posthog-import-only <json-directory-path>  Imports the JSON files from the Amplitude export into
+                                             PostHog. Requires the JSON files.
+  help [command]                             display help for command
+```
 
 ## TODO
 
 - [x] Extract the data from Amplitude
 - [x] Unzip and convert the data into JSON files and store
-- [ ] Iterate over the stored JSON files, convert the Amplitude events to PostHog events and send them to PostHog
+- [x] Iterate over the stored JSON files, convert the Amplitude events to PostHog events and send them to PostHog
 - [ ] Store PostHog event capture progress as iterating so that the process can be resumed if a request fails

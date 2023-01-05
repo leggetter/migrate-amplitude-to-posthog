@@ -14,9 +14,23 @@ const config = new Conf({
   last_json_imported: {
     type: 'string'
   },
+  AMPLITUDE_API_KEY: {
+    type: 'string',
+  },
+  AMPLITUDE_API_SECRET: {
+    type: 'string'
+  },
+  AMPLITUDE_START_EXPORT_DATE: {
+    type: 'string',
+    pattern: '^(\d{2}\/\d{2}\/\d{4})$'
+  },
+  AMPLITUDE_END_EXPORT_DATE: {
+    type: 'string',
+    pattern: '^(\d{2}\/\d{2}\/\d{4})$'
+  },
+  POSTHOG_API_HOST: {
+    type: 'string'
+  }
 })
-
-import * as dotenv from 'dotenv'
-dotenv.config()
 
 export default config
