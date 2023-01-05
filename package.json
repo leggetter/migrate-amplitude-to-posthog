@@ -17,6 +17,7 @@
   "author": "Phil Leggetter <phil@leggetter.co.uk> (https://leggetter.co.uk)",
   "license": "ISC",
   "dependencies": {
+    "adm-zip": "^0.5.10",
     "dotenv": "^16.0.3",
     "fs-extra": "^11.1.0",
     "node-fetch": "^3.3.0"
