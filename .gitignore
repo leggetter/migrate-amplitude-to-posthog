@@ -132,3 +132,4 @@ dist
 # App specific ignores
 exports
 test-export
+migration.json

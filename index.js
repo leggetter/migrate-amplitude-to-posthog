@@ -5,6 +5,28 @@ import path from 'path'
 import AdmZip from 'adm-zip'
 import zlib from 'node:zlib'
 
+import Conf from 'conf'
+const MIGRATION_STAGES = {
+  AMPLITUDE_EXPORT: 0,
+  AMPLITUDE_UNZIP: 1,
+  POSTHOG_IMPORT: 2,
+  COMPLETE: 100,
+}
+const config = new Conf({
+  configName: 'migration',
+  // docs warn against changing `cwd`, but we want to store the config in the app directory
+  cwd: process.cwd(),
+  migration_step: {
+    type: 'number'
+  },
+  migration_directory: {
+    type: 'string',
+  },
+  last_json_imported: {
+    type: 'string'
+  },
+})
+
 import * as dotenv from 'dotenv'
 dotenv.config()
 
@@ -24,6 +46,14 @@ if(!process.env.END_EXPORT_DATE) {
   throw new Error('The END_EXPORT_DATE environmental variable is required and should be in the format MM/DD/YYYY')
 }
 
+if(!process.env.POSTHOG_API_HOST) {
+  throw new Error('The POSTHOG_API_HOST environmental variable is required')
+}
+
+if(!process.env.POSTHOG_PROJECT_API_KEY) {
+  throw new Error('The POSTHOG_PROJECT_API_KEY environmental variable is required')
+}
+
 function stringToAmplitudeDateFormat(dateString, hour) {
   return new Date(dateString).toISOString().replace(/(T\d{2}).*/, `T${hour}`).replace(/-/g, '')
 }
@@ -33,7 +63,7 @@ async function exportFromAmplitude() {
 
   const auth = Buffer.from(`${process.env.AMPLITUDE_API_KEY}:${process.env.AMPLITUDE_API_SECRET}`).toString('base64')
 
-  console.log('Making request... this can take some time')
+  console.log('Making request to Amplitude Export API... this can take some time')
   
   const url = `https://amplitude.com/api/2/export?` +
               `start=${stringToAmplitudeDateFormat(process.env.START_EXPORT_DATE, '00')}` +
@@ -59,6 +89,8 @@ async function exportFromAmplitude() {
 }
 
 async function unzipExport({dirName, filePath}) {
+  let eventCount = 0
+
   const zip = new AdmZip(filePath)
   var zipEntries = zip.getEntries()
 
@@ -74,56 +106,118 @@ async function unzipExport({dirName, filePath}) {
       const objectArray = perLineStringArray.map(value => {
         return JSON.parse(value)
       })
+
+      eventCount += objectArray.length
+
       await fs.writeJson(path.resolve(jsonDirPath, zipEntry.name.replace('.gz', '')), objectArray, {spaces: 2})
     }
   }))
 
-  return jsonDirPath
+  return {eventCount, jsonDirPath}
 }
 
-async function sendToPostHog(jsonDirPath) {
-  // {"$insert_id":"c969a556-e61b-4293-8a10-38ae67aa21fb","$insert_key":"019354d3c43a450d4a20bbdf9b2c1ca199#232","$schema":13,"adid":null,"amplitude_attribution_ids":null,"amplitude_event_type":null,"amplitude_id":538001826014,"app":409857,"city":null,"client_event_time":"2023-01-01 19:02:52.749000","client_upload_time":"2023-01-01 19:02:54.262000","country":null,"data":{"group_ids":{},"group_first_event":{}},"data_type":"event","device_brand":null,"device_carrier":null,"device_family":null,"device_id":"25241593-7196-5c00-b70c-170eb85bb4a6","device_manufacturer":null,"device_model":null,"device_type":null,"dma":null,"event_id":744142725,"event_properties":{"referer":"http://52.2.56.64:80/","ip":"198.235.24.45","originalURL":"https://www.tigrisdata.com/jamstack"},"event_time":"2023-01-01 19:02:52.749000","event_type":"view_page","global_user_properties":{},"group_properties":{},"groups":{},"idfa":null,"ip_address":null,"is_attribution_event":false,"language":null,"library":"segment","location_lat":null,"location_lng":null,"os_name":null,"os_version":null,"partner_id":null,"paying":null,"plan":{},"platform":null,"processed_time":"2023-01-01 19:02:56.944373","region":null,"sample_rate":null,"server_received_time":"2023-01-01 19:02:54.262000","server_upload_time":"2023-01-01 19:02:54.266000","session_id":-1,"source_id":null,"start_version":null,"user_creation_time":"2023-01-01 19:02:52.749000","user_id":"06cdb68f-885b-4b6e-be54-69b38b5b0d95","user_properties":{},"uuid":"e6fe6a70-8a06-11ed-9ac0-ab8bd3fc3d15","version_name":null}
+const AmplitudeToPostHogEventNameMap = {
+  'view_page': '$pageview',
+  'Viewed':  '$pageview',
+  'Viewed docs': '$pageview'
+}
 
-  const files = await fs.promises.readdir(jsonDirPath)
-  console.log(files)
+// See https://posthog.com/docs/migrate/migrate-from-amplitude
+function amplitudeToPostHogEvent(amplitudeEvent) {
+    const distinctId = amplitudeEvent.user_id || amplitudeEvent.device_id;
+    const eventMessage = {
+      properties: {
+        ...amplitudeEvent.event_properties,
+        // ...other_fields,
+        $set: { ...amplitudeEvent.user_properties, ...amplitudeEvent.group_properties },
+        $geoip_disable: true,
+      },
+      event: AmplitudeToPostHogEventNameMap[amplitudeEvent.event_name] || amplitudeEvent.event_name,
+      distinctId: distinctId,
+      timestamp: amplitudeEvent.event_time,
+    }
 
-  for (const jsonFileName of files) {
-    const nextFileName = path.resolve(jsonDirPath, jsonFileName)
-    console.log('Reading', nextFileName)
-    const json = await fs.readJson(nextFileName)
-    console.log(json)
+    return eventMessage
+}
 
-    // TODO: convert to PostHog format
-    // const distinctId = user_id || device_id;
-    // const eventMessage = {
-    //   properties: {
-    //     ...event_properties,
-    //     ...other_fields,
-    //     $set: { ...user_properties, ...group_properties },
-    //     $geoip_disable: true,
-    //   },
-    //   event: event_name, // TODO: map 'view_page', 'Viewed', 'Viewed docs' to $pageview
-    //   distinctId: distinctId,
-    //   timestamp: event_time,
-    // }
-    // TODO: create batch per file https://posthog.com/docs/api/post-only-endpoints#batch-events
-    // TODO: record which JSON file has been successfully processes in case of failure and the need to resume
-    // TODO: create test PostHog project
-    // TODO: send as batch
+function aliasMapped(aliasId) {
+  // TODO: lookup to see if the alias has already been registered in PostHog
+  return true
+}
+
+async function trackAliases(amplitudeEvent) {
+  if(amplitudeEvent.device_id && amplitudeEvent.user_id) {
+    const aliasId = `${amplitudeEvent.device_id}:${amplitudeEvent.user_id}`
+    if(!aliasMapped(aliasId)) {
+      // TODO: make alias request to PostHog
+      // await fetch request
+      // register that the alisas has now been mapped
+    }
   }
 }
 
+async function sendToPostHog(jsonDirPath) {
+  const files = await fs.promises.readdir(jsonDirPath)
+
+  let eventCount = 0
+
+  for (const jsonFileName of files) {
+    const nextFileName = path.resolve(jsonDirPath, jsonFileName)
+    const json = await fs.readJson(nextFileName)
+
+    // Batch up requests per Amplitude file
+    const eventsMessages = []
+    for (const ampEvent in json) {
+      eventsMessages.push(amplitudeToPostHogEvent(ampEvent))
+      await trackAliases(ampEvent)
+    }
+
+    eventCount += eventsMessages.length
+
+    // TODO: create batch per file https://posthog.com/docs/api/post-only-endpoints#batch-events
+    const requestBody = {
+      api_key: process.env.POSTHOG_PROJECT_API_KEY,
+      batch: eventsMessages,
+    }
+
+    // const response = await fetch(`${process.env.POSTHOG_API_HOST}/batch`, {
+    //   method: 'POST',
+    //   headers: {
+    //     'Content-Type': 'application/json',
+    //   },
+    //   body: JSON.stringify(requestBody)
+    // })
+
+    // Record which JSON file has been successfully processes in case of failure and the need to resume
+    config.set('last_json_imported', nextFileName)
+  }
+
+  return {eventCount}
+}
+
+// Full process
 (async () => {
+  config.set('migration_step', MIGRATION_STAGES.AMPLITUDE_EXPORT)
   const exportResult = await exportFromAmplitude();
-  const jsonDirPath = await unzipExport(exportResult)
+  config.set('migration_directory', exportResult.dirName)
+
+  config.set('migration_step', MIGRATION_STAGES.AMPLITUDE_UNZIP)
+  const {eventCount, jsonDirPath} = await unzipExport(exportResult)
+
+  config.set('migration_step', MIGRATION_STAGES.POSTHOG_IMPORT)
   sendToPostHog(jsonDirPath)
+
+  config.set('migration_step', MIGRATION_STAGES.COMPLETE)
 })()
 
+// Unzip only from test directory
 // (async () => {
 //   const fakeResult = {dirName: 'test-export', filePath: 'test-export/export.zip' }
-//   const jsonDirPath = await unzipExport(fakeResult)
+//   const {eventCount, jsonDirPath} = await unzipExport(fakeResult)
+//   console.log(`Will send ${eventCount} events to PostHog`)
 // })()
 
+// Send to PostHog only
 // (async () => {
 //   const jsonDirPath = 'test-export/json'
 //   sendToPostHog(jsonDirPath)
