@@ -103,27 +103,29 @@ async function sendToPostHog(jsonDirPath) {
     //     $set: { ...user_properties, ...group_properties },
     //     $geoip_disable: true,
     //   },
-    //   event: event_name,
+    //   event: event_name, // TODO: map 'view_page', 'Viewed', 'Viewed docs' to $pageview
     //   distinctId: distinctId,
     //   timestamp: event_time,
     // }
-    // TODO: create batch
-    // TODO: create text PostHog project
+    // TODO: create batch per file https://posthog.com/docs/api/post-only-endpoints#batch-events
+    // TODO: record which JSON file has been successfully processes in case of failure and the need to resume
+    // TODO: create test PostHog project
     // TODO: send as batch
   }
 }
 
-// (async () => {
-//   const exportResult = await exportFromAmplitude();
-//   await unzipExport(exportResult)
-// })()
+(async () => {
+  const exportResult = await exportFromAmplitude();
+  const jsonDirPath = await unzipExport(exportResult)
+  sendToPostHog(jsonDirPath)
+})()
 
 // (async () => {
 //   const fakeResult = {dirName: 'test-export', filePath: 'test-export/export.zip' }
 //   const jsonDirPath = await unzipExport(fakeResult)
 // })()
 
-(async () => {
-  const jsonDirPath = 'test-export/json'
-  sendToPostHog(jsonDirPath)
-})()
+// (async () => {
+//   const jsonDirPath = 'test-export/json'
+//   sendToPostHog(jsonDirPath)
+// })()
