@@ -27,7 +27,7 @@ A small utility that migrates data from an [Amplitude](https://amplitude.com) pr
 3. Configure the utility via the guided prompts by running the following command:
 
    ```shell
-   npm start config
+   node src/index.js config
    ```
 
    See the [Amplitude docs on getting your API credentials](https://www.docs.developers.amplitude.com/analytics/find-api-credentials/) for the `AMPLITUDE_API_KEY` and `AMPLITUDE_API_SECRET`. 

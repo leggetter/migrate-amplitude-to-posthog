@@ -16,7 +16,7 @@ const MIGRATION_STAGES = {
   COMPLETE: 'COMPLETE',
 }
 
-import { exportFromAmplitude, unzipExport, sendToPostHog } from './migrate.js'
+import { exportFromAmplitude, unzipExport, sendToPostHog, sendAliasesToPostHog } from './migrate.js'
 
 async function checkRequiredConfig() {
   let setAnyConfig = false
@@ -112,7 +112,12 @@ async function checkRequiredConfig() {
   }
 }
 
-async function setConfig() {
+async function setConfig(options) {
+  if(options.clearAliases) {
+    console.log('Clearing aliases')
+    config.set('mapped_aliases', {})
+  }
+
   await checkRequiredConfig()
 }
 
@@ -186,19 +191,24 @@ async function fullProcess() {
     console.log('Proceeding with the PostHog import.')
   }
 
-  postHogImportStep({jsonDirPath: unzipResult.jsonDirPath, batchSize: batchSize})
+  await postHogImportStep({jsonDirPath: unzipResult.jsonDirPath, batchSize: batchSize})
 
   config.set('migration_step', MIGRATION_STAGES.COMPLETE)
 }
 
 async function unzipOnly(exportZipPath) {
-  unzipStep({jsonDirPath: exportZipPath})
+  await unzipStep({jsonDirPath: exportZipPath})
 }
 
 async function postHogOnly(jsonDirectoryPath) {
-  postHogImportStep({jsonDirPath: jsonDirectoryPath})
+  await postHogImportStep({jsonDirPath: jsonDirectoryPath})
 }
 
+async function postHogAliasesOnly(jsonDirectoryPath) {
+  const {eventCount} = await sendAliasesToPostHog({jsonDirPath: jsonDirectoryPath})
+  console.log(`Set ${eventCount} new aliases in PostHog`)
+  console.log(JSON.stringify(config.get('mapped_aliases'), null, 2))
+}
 async function main() {
   program
     .hook('preAction', async (_thisCommand, _actionCommand) => {
@@ -214,6 +224,7 @@ async function main() {
   program
     .command('config')
     .description('Checks for any missing required configuration. Prompts when\nrequired configuration is missing. Configuration is stored in\nmigration.conf in the working directory.')
+    .option('--clear-aliases', 'Clears the alias mapping from the config file.')
     .action(setConfig)
 
   // TODO: add PostHog batch size option
@@ -234,6 +245,12 @@ async function main() {
     .description('Imports the JSON files from the Amplitude export into\nPostHog. Requires the JSON files.')
     .argument('<json-directory-path>', 'The path to the JSON files generated as part of the Amplitude export unzipping\nprocess')
     .action(postHogOnly)
+
+  program
+    .command('posthog-aliases-only')
+    .description('Imports the user_id and device_id aliases from JSON files from the Amplitude export into\nPostHog. Requires the JSON files.')
+    .argument('<json-directory-path>', 'The path to the JSON files generated as part of the Amplitude export unzipping\nprocess')
+    .action(postHogAliasesOnly)
 
   await program.parseAsync(process.argv);
 }

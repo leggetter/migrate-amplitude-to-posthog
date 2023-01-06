@@ -108,20 +108,56 @@ function amplitudeToPostHogEvent(amplitudeEvent) {
     return eventMessage
 }
 
-function aliasMapped(aliasId) {
-  // TODO: lookup to see if the alias has already been registered in PostHog
-  return true
-}
-
 async function trackAliases(amplitudeEvent) {
+  let newAliasAdded = false
+
   if(amplitudeEvent.device_id && amplitudeEvent.user_id) {
-    const aliasId = `${amplitudeEvent.device_id}:${amplitudeEvent.user_id}`
-    if(!aliasMapped(aliasId)) {
-      // TODO: make alias request to PostHog
-      // await fetch request
-      // register that the alisas has now been mapped
+    const mappedAliases = config.get('mapped_aliases') || {}
+
+    if(mappedAliases[amplitudeEvent.user_id] === undefined) {
+      mappedAliases[amplitudeEvent.user_id] = []
+    }
+
+    if(mappedAliases[amplitudeEvent.user_id].includes(amplitudeEvent.device_id) === false) {
+      // TODOs:
+      // 1. test sending the alias events to PostHog standalone
+      // 2. test sending the alias events to PostHog as part of the standard import of events
+      // 3. consider if the alias events should be included in the event count - could/should they be batched?
+
+      // New device_id for the user_id
+      // const requestBody = {
+      //   api_key: config.get('POSTHOG_PROJECT_API_KEY'),
+      //   properties: {
+      //     distinct_id: amplitudeEvent.user_id,
+      //     alias: amplitudeEvent.device_id,
+      //   },
+      //   timestamp: new Date(amplitudeEvent.event_time).toISOString(),
+      //   context: {},
+      //   type: 'alias',
+      //   event: '$create_alias'
+      // }
+
+      // const response = await fetch(`${config.get('POSTHOG_API_HOST')}/capture`, {
+      //   method: 'POST',
+      //   headers: {
+      //     'Content-Type': 'application/json',
+      //   },
+      //   body: JSON.stringify(requestBody)
+      // })
+      
+      // if(response.status !== 200) {
+      //   throw new Error(`Unexpected response code from PostHog API.\nStatus: ${response.status} \nStatus Text: ${response.statusText}\nBody: ${JSON.stringify(await response.json())}`)
+      // }
+
+      mappedAliases[amplitudeEvent.user_id].push(amplitudeEvent.device_id)
+
+      config.set('mapped_aliases', mappedAliases)
+
+      newAliasAdded = true
     }
   }
+
+  return newAliasAdded
 }
 
 async function sendToPostHog({jsonDirPath, batchSize}) {
@@ -146,7 +182,6 @@ async function sendToPostHog({jsonDirPath, batchSize}) {
       eventsMessages.push(amplitudeToPostHogEvent(ampEvent))
       await trackAliases(ampEvent)
     }
-
     
     // Send if batch size has been reached
     // or the last file has just been processed
@@ -187,4 +222,28 @@ async function sendToPostHog({jsonDirPath, batchSize}) {
   return {eventCount, batchRequestCount, jsonFileCount}
 }
 
-export {exportFromAmplitude, unzipExport, sendToPostHog}
+async function sendAliasesToPostHog({jsonDirPath}) {
+  spinner.start('Finding aliases and sending to PostHog')
+
+  const files = await fs.promises.readdir(jsonDirPath)
+  let eventCount = 0
+  const jsonFileCount = files.length
+
+  for (let i = 0; i < jsonFileCount; ++i) {
+    const jsonFileName = files[i]
+    const nextFileName = path.resolve(jsonDirPath, jsonFileName)
+    const json = await fs.readJson(nextFileName)
+
+    for (const ampEvent of json) {
+      const newAliasAdded = await trackAliases(ampEvent)
+      if(newAliasAdded) {
+        ++eventCount
+      }
+    }
+  }
+
+  spinner.stop()
+  return {eventCount}
+}
+
+export {exportFromAmplitude, unzipExport, sendToPostHog, sendAliasesToPostHog}
