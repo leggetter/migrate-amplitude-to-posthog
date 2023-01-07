@@ -233,6 +233,14 @@ async function sendAliasesToPostHog({jsonDirPath, batchSize}) {
   return {batchRequestCount, eventCount, jsonFileCount}
 }
 
+// function getRequestSize(request) {
+//   const size = new TextEncoder().encode(JSON.stringify(request)).length
+//   const kiloBytes = size / 1024;
+//   const megaBytes = kiloBytes / 1024;
+
+//   return {size, kiloBytes, megaBytes}
+// }
+
 async function postHogBatchEventRequest({eventsMessages}) {
   // Create batch per file https://posthog.com/docs/api/post-only-endpoints#batch-events
   const requestBody = {
@@ -240,6 +248,7 @@ async function postHogBatchEventRequest({eventsMessages}) {
     batch: eventsMessages,
   }
   // console.log('>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>')
+  // console.log('Request size', getRequestSize(requestBody))
   // console.log(JSON.stringify(requestBody, null, 2))
   
   // Makes sequential requests (rather than parallel)
