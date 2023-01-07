@@ -61,6 +61,26 @@ Commands:
   help [command]                             display help for command
 ```
 
+## A guide to migrating data from Amplitude to PostHog
+
+### Fully automated
+
+You can use the `full-migration` command to walk through the full migration from Amplitude to PostHog.
+
+If the Amplitude export times out try the steps in the **Partially automated** section.
+
+### Partially automated
+
+The Amplitude export can timeout for large exports so you may be better taking a multi-step approach to the process.
+
+1. Within the Amplitude dashboard got to your **Organization settings** > **Projects** and select the project you want to export data from.
+2. Click the **Export Data** button and select the full date range. Then click the **Save** button. This will begin the export process and your browser will download an `export.zip` file.
+3. Move the `export.zip` file to a working directory.
+4. Set your terminal working directory to the working directory that the zip file is in (e.g. `cd path/to/dir/containing/export/zip`).
+4. Run the command `unzip-only path/to/export.zip`. You will be prompted for some configuration (note: some config isn't require for this command). This will create a `json` directory within that working folder with all the events that are to be imported to PostHog.
+5. Run the command `posthog-import-only path/to/json` (the `json` directory that was just created)
+6. When completed you will see a message similar to `Sent 61590 events to PostHog (2554 of which were alias events) from 2520 JSON files in 58 batch requests.`
+
 ## TODO
 
 ### Planned
@@ -68,7 +88,7 @@ Commands:
 - [x] Extract the data from Amplitude
 - [x] Unzip and convert the data into JSON files and store
 - [x] Iterate over the stored JSON files, convert the Amplitude events to PostHog events and send them to PostHog
-- [ ] Add alias tracking
+- [x] Add alias tracking
 
 ## Nice to have
 
