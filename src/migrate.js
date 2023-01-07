@@ -84,7 +84,7 @@ async function unzipExport(exportZipPath) {
 }
 
 function amplitudeToPostHogEventTypeMap(eventType) {
-  if(eventType === 'view_page' || /Viewed\s.*/.test(eventType)) {
+  if(eventType === 'view_page' || /Viewed\s.*/.test(eventType) || eventType === 'visit_') {
     return '$pageview'
   }
   return eventType
@@ -108,8 +108,8 @@ function amplitudeToPostHogEvent(amplitudeEvent) {
     return eventMessage
 }
 
-async function trackAliases(amplitudeEvent) {
-  let newAliasAdded = false
+function trackAliases(amplitudeEvent) {
+  let newAliasEvents = []
 
   if(amplitudeEvent.device_id && amplitudeEvent.user_id) {
     const mappedAliases = config.get('mapped_aliases') || {}
@@ -125,39 +125,31 @@ async function trackAliases(amplitudeEvent) {
       // 3. consider if the alias events should be included in the event count - could/should they be batched?
 
       // New device_id for the user_id
-      // const requestBody = {
-      //   api_key: config.get('POSTHOG_PROJECT_API_KEY'),
-      //   properties: {
-      //     distinct_id: amplitudeEvent.user_id,
-      //     alias: amplitudeEvent.device_id,
-      //   },
-      //   timestamp: new Date(amplitudeEvent.event_time).toISOString(),
-      //   context: {},
-      //   type: 'alias',
-      //   event: '$create_alias'
-      // }
+      const aliasEvent = {
+        properties: {
+          distinct_id: amplitudeEvent.user_id,
+          alias: amplitudeEvent.device_id,
+        },
+        timestamp: new Date(amplitudeEvent.event_time).toISOString(),
+        context: {},
+        type: 'alias',
+        event: '$create_alias'
+      }
 
-      // const response = await fetch(`${config.get('POSTHOG_API_HOST')}/capture`, {
-      //   method: 'POST',
-      //   headers: {
-      //     'Content-Type': 'application/json',
-      //   },
-      //   body: JSON.stringify(requestBody)
-      // })
-      
-      // if(response.status !== 200) {
-      //   throw new Error(`Unexpected response code from PostHog API.\nStatus: ${response.status} \nStatus Text: ${response.statusText}\nBody: ${JSON.stringify(await response.json())}`)
-      // }
+      newAliasEvents.push(aliasEvent)
 
       mappedAliases[amplitudeEvent.user_id].push(amplitudeEvent.device_id)
 
       config.set('mapped_aliases', mappedAliases)
-
-      newAliasAdded = true
     }
   }
 
-  return newAliasAdded
+  return newAliasEvents
+}
+
+function shouldMakeBatchRequest(eventsMessages, batchSize, filesProcessIndex, filesToProcess) {
+  return eventsMessages.length > 0 &&
+         (eventsMessages.length >= batchSize || filesProcessIndex + 1 >= filesToProcess)
 }
 
 async function sendToPostHog({jsonDirPath, batchSize}) {
@@ -165,6 +157,7 @@ async function sendToPostHog({jsonDirPath, batchSize}) {
 
   const files = await fs.promises.readdir(jsonDirPath)
   let eventCount = 0
+  let aliasEventCount = 0
   let batchRequestCount = 0
   const jsonFileCount = files.length
 
@@ -180,32 +173,17 @@ async function sendToPostHog({jsonDirPath, batchSize}) {
 
     for (const ampEvent of json) {
       eventsMessages.push(amplitudeToPostHogEvent(ampEvent))
-      await trackAliases(ampEvent)
+      const aliasEvents = trackAliases(ampEvent)
+      aliasEventCount += aliasEvents.length
+      eventsMessages = eventsMessages.concat(aliasEvents)
     }
     
     // Send if batch size has been reached
     // or the last file has just been processed
-    if(eventsMessages.length >= batchSize || i >= jsonFileCount - 1) {
-      // Create batch per file https://posthog.com/docs/api/post-only-endpoints#batch-events
-      const requestBody = {
-        api_key: config.get('POSTHOG_PROJECT_API_KEY'),
-        batch: eventsMessages,
-      }
+    if(shouldMakeBatchRequest(eventsMessages, batchSize, i, jsonFileCount)) {
       
-      // Makes sequential requests (rather than parallel)
-      // but it may be worth adding a small wait inbetween requests via a config option.
-      const response = await fetch(`${config.get('POSTHOG_API_HOST')}/batch`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(requestBody)
-      })
-      
-      if(response.status !== 200) {
-        throw new Error(`Unexpected response code from PostHog API.\nStatus: ${response.status} \nStatus Text: ${response.statusText}\nBody: ${JSON.stringify(await response.json())}`)
-      }
-      
+      await postHogBatchEventRequest({eventsMessages})
+
       // Records which JSON file has been successfully processed in case of failure and the need to resume
       config.set('last_json_imported', nextFileName)
       
@@ -219,15 +197,18 @@ async function sendToPostHog({jsonDirPath, batchSize}) {
 
   spinner.stop()
 
-  return {eventCount, batchRequestCount, jsonFileCount}
+  return {eventCount, batchRequestCount, jsonFileCount, aliasEventCount}
 }
 
-async function sendAliasesToPostHog({jsonDirPath}) {
+async function sendAliasesToPostHog({jsonDirPath, batchSize}) {
   spinner.start('Finding aliases and sending to PostHog')
 
   const files = await fs.promises.readdir(jsonDirPath)
-  let eventCount = 0
   const jsonFileCount = files.length
+
+  let aliasEvents = []
+  let batchRequestCount = 0
+  let eventCount = 0
 
   for (let i = 0; i < jsonFileCount; ++i) {
     const jsonFileName = files[i]
@@ -235,15 +216,45 @@ async function sendAliasesToPostHog({jsonDirPath}) {
     const json = await fs.readJson(nextFileName)
 
     for (const ampEvent of json) {
-      const newAliasAdded = await trackAliases(ampEvent)
-      if(newAliasAdded) {
-        ++eventCount
-      }
+      aliasEvents = aliasEvents.concat(trackAliases(ampEvent))
     }
+
+    if(shouldMakeBatchRequest(aliasEvents, batchSize, i, jsonFileCount)) {
+      await postHogBatchEventRequest({eventsMessages: aliasEvents})
+
+      batchRequestCount++
+      eventCount += aliasEvents.length
+      aliasEvents = []
+    }
+
   }
 
   spinner.stop()
-  return {eventCount}
+  return {batchRequestCount, eventCount, jsonFileCount}
+}
+
+async function postHogBatchEventRequest({eventsMessages}) {
+  // Create batch per file https://posthog.com/docs/api/post-only-endpoints#batch-events
+  const requestBody = {
+    api_key: config.get('POSTHOG_PROJECT_API_KEY'),
+    batch: eventsMessages,
+  }
+  // console.log('>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>')
+  // console.log(JSON.stringify(requestBody, null, 2))
+  
+  // Makes sequential requests (rather than parallel)
+  // but it may be worth adding a small wait inbetween requests via a config option.
+  const response = await fetch(`${config.get('POSTHOG_API_HOST')}/batch`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(requestBody)
+  })
+  
+  if(response.status !== 200) {
+    throw new Error(`Unexpected response code from PostHog API.\nStatus: ${response.status} \nStatus Text: ${response.statusText}\nBody: ${JSON.stringify(await response.json())}`)
+  }
 }
 
 export {exportFromAmplitude, unzipExport, sendToPostHog, sendAliasesToPostHog}

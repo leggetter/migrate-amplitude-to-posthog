@@ -52,7 +52,7 @@ Commands:
   config                                     Checks for any missing required configuration. Prompts when
                                              required configuration is missing. Configuration is stored in
                                              migration.conf in the working directory.
-  full-export                                Performs a full Amplitude export, file unzipping and JSON
+  full-migration                             Performs a full Amplitude export, file unzipping and JSON
                                              file setup, and PostHog event import.
   unzip-only <export-zip-path>               Unzipped the Amplitude export zip file and sets up the JSON
                                              files ready for the PostHog import. Request an export zip file.

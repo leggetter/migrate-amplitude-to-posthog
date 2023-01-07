@@ -142,7 +142,7 @@ async function postHogImportStep({jsonDirPath, batchSize = 1000}) {
   config.set('migration_step', MIGRATION_STAGES.POSTHOG_IMPORT)
   const postHogResult = await sendToPostHog({jsonDirPath, batchSize})
 
-  console.log(`Sent ${postHogResult.eventCount} events to PostHog from ${postHogResult.jsonFileCount} JSON files in ${postHogResult.batchRequestCount} batch requests.`)
+  console.log(`Sent ${postHogResult.eventCount} events to PostHog (${postHogResult.aliasEventCount} of which were alias events) from ${postHogResult.jsonFileCount} JSON files in ${postHogResult.batchRequestCount} batch requests.`)
 
   return postHogResult
 }
@@ -205,9 +205,27 @@ async function postHogOnly(jsonDirectoryPath) {
 }
 
 async function postHogAliasesOnly(jsonDirectoryPath) {
-  const {eventCount} = await sendAliasesToPostHog({jsonDirPath: jsonDirectoryPath})
-  console.log(`Set ${eventCount} new aliases in PostHog`)
-  console.log(JSON.stringify(config.get('mapped_aliases'), null, 2))
+  const existingAliasesCound = Object.keys(config.get('mapped_aliases')).length
+  if(existingAliasesCound > 0) {
+    console.warn(`${existingAliasesCound} Aliases already exist so existing aliases will not be sent to PostHog`)
+
+    const proceedWithImport = await inquirer.prompt([{
+      type: 'confirm',
+      name: 'CLEAR_EXISTING_ALIASES',
+      message: `Do you wish to clear the existing aliases`,
+      default: false
+    }])
+  
+    if(proceedWithImport['CLEAR_EXISTING_ALIASES'] === true) {
+      console.log('Clearing existing aliases')
+      config.set('mapped_aliases', {})
+    }
+  }
+
+  const batchSize = 1000
+  const {batchRequestCount, eventCount, jsonFileCount} = await sendAliasesToPostHog({jsonDirPath: jsonDirectoryPath, batchSize})
+  console.log(`Processed ${jsonFileCount} files and set ${eventCount} new aliases in PostHog in ${batchRequestCount} requests`)
+  // console.log(JSON.stringify(config.get('mapped_aliases'), null, 2))
 }
 async function main() {
   program
@@ -229,7 +247,7 @@ async function main() {
 
   // TODO: add PostHog batch size option
   program
-    .command('full-export')
+    .command('full-migration')
     .description('Performs a full Amplitude export, file unzipping and JSON\nfile setup, and PostHog event import.')
     .action(fullProcess)
 
