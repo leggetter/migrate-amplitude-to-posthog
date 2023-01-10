@@ -119,11 +119,6 @@ function trackAliases(amplitudeEvent) {
     }
 
     if(mappedAliases[amplitudeEvent.user_id].includes(amplitudeEvent.device_id) === false) {
-      // TODOs:
-      // 1. test sending the alias events to PostHog standalone
-      // 2. test sending the alias events to PostHog as part of the standard import of events
-      // 3. consider if the alias events should be included in the event count - could/should they be batched?
-
       // New device_id for the user_id
       const aliasEvent = {
         properties: {
