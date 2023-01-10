@@ -1,12 +1,21 @@
 import fs from 'fs-extra'
 import fetch from 'node-fetch'
-import path from 'path'
+import path, {dirname} from 'path'
+import { fileURLToPath } from 'url';
 
 import AdmZip from 'adm-zip'
 import zlib from 'node:zlib'
 
 import config from './config.js'
 import ora from 'ora'
+
+import { createRequire } from "module"
+const require = createRequire(import.meta.url)
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const pkg = require(`${path.resolve(__dirname, '..', 'package.json')}`)
+
+console.log(pkg.name, pkg.version)
 
 const spinner = ora()
 
@@ -99,10 +108,14 @@ function amplitudeToPostHogEvent(amplitudeEvent) {
         // ...other_fields,
         $set: { ...amplitudeEvent.user_properties, ...amplitudeEvent.group_properties },
         $geoip_disable: true,
+        '$lib': pkg.name,
+        '$lib_version': pkg.version,
       },
       event: amplitudeToPostHogEventTypeMap(amplitudeEvent.event_type),
       distinct_id: distinctId,
       timestamp: new Date(amplitudeEvent.event_time).toISOString(),
+      library: pkg.name,
+      library_version: pkg.version,
     }
 
     return eventMessage
@@ -124,11 +137,15 @@ function trackAliases(amplitudeEvent) {
         properties: {
           distinct_id: amplitudeEvent.user_id,
           alias: amplitudeEvent.device_id,
+          '$lib': pkg.name,
+          '$lib_version': pkg.version,
         },
         timestamp: new Date(amplitudeEvent.event_time).toISOString(),
         context: {},
         type: 'alias',
-        event: '$create_alias'
+        event: '$create_alias',
+        library: pkg.name,
+        library_version: pkg.version
       }
 
       newAliasEvents.push(aliasEvent)
@@ -241,6 +258,8 @@ async function postHogBatchEventRequest({eventsMessages}) {
   const requestBody = {
     api_key: config.get('POSTHOG_PROJECT_API_KEY'),
     batch: eventsMessages,
+    '$lib': pkg.name,
+    '$lib_version': pkg.version,
   }
   // console.log('>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>')
   // console.log('Request size', getRequestSize(requestBody))
