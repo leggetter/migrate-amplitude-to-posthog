@@ -15,8 +15,6 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const pkg = require(`${path.resolve(__dirname, '..', 'package.json')}`)
 
-console.log(pkg.name, pkg.version)
-
 const spinner = ora()
 
 function stringToAmplitudeDateFormat(dateString, hour) {
