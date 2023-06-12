@@ -133,3 +133,4 @@ dist
 exports
 test-exports
 migration.conf
+alias.conf
