@@ -7,6 +7,8 @@ import AdmZip from 'adm-zip'
 import zlib from 'node:zlib'
 
 import config from './config.js'
+import alias from './alias.js'
+import cache from 'memory-cache'
 import ora from 'ora'
 
 import { createRequire } from "module"
@@ -69,21 +71,32 @@ async function unzipExport(exportZipPath) {
 
   spinner.start(`Saving JSON files to ${jsonDirPath}`)
 
-  await Promise.all(zipEntries.map(async (zipEntry) => {
-    if (zipEntry.entryName.endsWith('.gz')) {
-      const gzData = zlib.gunzipSync(zipEntry.getCompressedData())
-      let perLineStringArray = Buffer.from(gzData).toString().split(/\r?\n/)
-      perLineStringArray = perLineStringArray.filter(n => n) // remove empty lines/array elements
-      const objectArray = perLineStringArray.map(value => {
-        return JSON.parse(value)
-      })
+  const batchSize = 24; // Adjust the batch size as per your requirements
+  const zipEntriesCount = zipEntries.length;
+  let processedCount = 0;
 
-      eventCount += objectArray.length
+  while (processedCount < zipEntriesCount) {
+    const batch = zipEntries.slice(processedCount, processedCount + batchSize);
 
-      await fs.writeJson(path.resolve(jsonDirPath, zipEntry.name.replace('.gz', '')), objectArray, {spaces: 2})
-      jsonFileCount++
-    }
-  }))
+    await Promise.all(batch.map(async (zipEntry) => {
+      if (zipEntry.entryName.endsWith('.gz')) {
+        const gzData = zlib.gunzipSync(zipEntry.getCompressedData())
+        let perLineStringArray = Buffer.from(gzData).toString().split(/\r?\n/)
+        perLineStringArray = perLineStringArray.filter(n => n) // remove empty lines/array elements
+        const objectArray = perLineStringArray.map(value => {
+          return JSON.parse(value)
+        })
+
+        eventCount += objectArray.length
+
+        await fs.writeJson(path.resolve(jsonDirPath, zipEntry.name.replace('.gz', '')), objectArray, { spaces: 2 })
+        jsonFileCount++;
+      }
+    }));
+
+    processedCount += batch.length;
+  }
+
 
   spinner.stop()
 
@@ -123,13 +136,13 @@ function trackAliases(amplitudeEvent) {
   let newAliasEvents = []
 
   if(amplitudeEvent.device_id && amplitudeEvent.user_id) {
-    const mappedAliases = config.get('mapped_aliases') || {}
+    let user_id_in_cache = cache.get(amplitudeEvent.user_id);
 
-    if(mappedAliases[amplitudeEvent.user_id] === undefined) {
-      mappedAliases[amplitudeEvent.user_id] = []
+    if (user_id_in_cache === null) {
+      user_id_in_cache = [];
     }
 
-    if(mappedAliases[amplitudeEvent.user_id].includes(amplitudeEvent.device_id) === false) {
+    if (user_id_in_cache.includes(amplitudeEvent.device_id) === false) {
       // New device_id for the user_id
       const aliasEvent = {
         properties: {
@@ -148,9 +161,8 @@ function trackAliases(amplitudeEvent) {
 
       newAliasEvents.push(aliasEvent)
 
-      mappedAliases[amplitudeEvent.user_id].push(amplitudeEvent.device_id)
-
-      config.set('mapped_aliases', mappedAliases)
+      user_id_in_cache.push(amplitudeEvent.device_id)
+      cache.put(amplitudeEvent.user_id, user_id_in_cache)
     }
   }
 
@@ -164,6 +176,8 @@ function shouldMakeBatchRequest(eventsMessages, batchSize, filesProcessIndex, fi
 
 async function sendToPostHog({jsonDirPath, batchSize}) {
   spinner.start('Importing batched events to PostHog')
+
+  await importCacheDataToAliasFile();
 
   const files = await fs.promises.readdir(jsonDirPath)
   let eventCount = 0
@@ -205,6 +219,7 @@ async function sendToPostHog({jsonDirPath, batchSize}) {
     }
   }
 
+  await exportCacheDataToAliasFile();
   spinner.stop()
 
   return {eventCount, batchRequestCount, jsonFileCount, aliasEventCount}
@@ -241,6 +256,21 @@ async function sendAliasesToPostHog({jsonDirPath, batchSize}) {
 
   spinner.stop()
   return {batchRequestCount, eventCount, jsonFileCount}
+}
+
+async function importCacheDataToAliasFile()
+{
+  cache.clear();
+  let mapped_aliases = alias.get('mapped_aliases');
+  if (mapped_aliases !== undefined) {
+    cache.importJson(JSON.stringify(mapped_aliases))
+  }
+}
+
+async function exportCacheDataToAliasFile()
+{
+  alias.set('mapped_aliases', JSON.parse(cache.exportJson()))
+  cache.clear();
 }
 
 // function getRequestSize(request) {

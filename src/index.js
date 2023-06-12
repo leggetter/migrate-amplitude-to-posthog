@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 
 import { program } from '@commander-js/extra-typings';
-import inquirer from 'inquirer'
+import inquirer from 'inquirer';
 
-import config from './config.js'
+import config from './config.js';
+import alias from './alias.js';
 
 // To be used when resuming a halted migration is supported.
 // If a failure occurs at the POSTHOG_IMPORT stage the
@@ -115,7 +116,7 @@ async function checkRequiredConfig() {
 async function setConfig(options) {
   if(options.clearAliases) {
     console.log('Clearing aliases')
-    config.set('mapped_aliases', {})
+    alias.clear()
   }
 
   await checkRequiredConfig()
